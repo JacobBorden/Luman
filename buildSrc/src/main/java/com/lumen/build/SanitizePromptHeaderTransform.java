@@ -15,8 +15,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -29,10 +27,6 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final Pattern PROMPT_HEADER_PATTERN =
-            Pattern.compile(
-                    "(<string[^>]*name=\\\"prompt_header\\\"[^>]*>)([\\s\\S]*?)(</string>)",
-                    Pattern.DOTALL);
     private static final String SANITIZED_SUFFIX = "-sanitized-v2";
 
     @InputArtifact
@@ -88,21 +82,9 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         List<File> valuesFiles = findValuesXmlFiles(root);
         for (File file : valuesFiles) {
             String original = Files.readString(file.toPath());
-            Matcher matcher = PROMPT_HEADER_PATTERN.matcher(original);
-            StringBuffer buffer = new StringBuffer();
-            boolean filePatched = false;
-            while (matcher.find()) {
-                String content = matcher.group(2);
-                String sanitized = sanitizePromptHeaderContent(content);
-                if (!sanitized.equals(content)) {
-                    String replacement = matcher.group(1) + sanitized + matcher.group(3);
-                    matcher.appendReplacement(buffer, Matcher.quoteReplacement(replacement));
-                    filePatched = true;
-                }
-            }
-            if (filePatched) {
-                matcher.appendTail(buffer);
-                Files.writeString(file.toPath(), buffer.toString());
+            String sanitized = sanitizePromptHeaderContent(original);
+            if (!sanitized.equals(original)) {
+                Files.writeString(file.toPath(), sanitized);
                 patchedAny = true;
             }
         }
@@ -110,11 +92,45 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
     }
 
     private static String sanitizePromptHeaderContent(String content) {
-        String sanitized = content;
-        sanitized = sanitized.replace("\"{str}\"", "\"%1$s\"");
-        sanitized = sanitized.replace("&quot;{str}&quot;", "&quot;%1$s&quot;");
-        sanitized = sanitized.replace("{str}", "%1$s");
-        return sanitized;
+        if (!content.contains("prompt_header")) {
+            return content;
+        }
+
+        StringBuilder rebuilt = new StringBuilder(content.length());
+        int index = 0;
+        boolean modified = false;
+
+        while (true) {
+            int stringStart = content.indexOf("<string", index);
+            if (stringStart == -1) {
+                rebuilt.append(content.substring(index));
+                break;
+            }
+
+            int openEnd = content.indexOf('>', stringStart);
+            int closeStart = openEnd == -1 ? -1 : content.indexOf("</string>", openEnd);
+            if (openEnd == -1 || closeStart == -1) {
+                return content;
+            }
+
+            rebuilt.append(content, index, openEnd + 1);
+            String tag = content.substring(stringStart, openEnd + 1);
+            String body = content.substring(openEnd + 1, closeStart);
+            if (tag.contains("name=\"prompt_header\"")) {
+                String sanitizedBody = body.replace("\"{str}\"", "\"%1$s\"")
+                        .replace("&quot;{str}&quot;", "&quot;%1$s&quot;")
+                        .replace("{str}", "%1$s");
+                if (!sanitizedBody.equals(body)) {
+                    modified = true;
+                    body = sanitizedBody;
+                }
+            }
+
+            rebuilt.append(body);
+            index = closeStart;
+        }
+
+        return modified ? rebuilt.toString() : content;
     }
 
     private static List<File> findValuesXmlFiles(File root) {
