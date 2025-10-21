@@ -30,8 +30,10 @@ import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
     private static final Pattern PROMPT_HEADER_PATTERN =
-            Pattern.compile("(<string[^>]*name=\\\"prompt_header\\\"[^>]*>)(.*?)(</string>)",
+            Pattern.compile(
+                    "(<string[^>]*name=\\\"prompt_header\\\"[^>]*>)([\\s\\S]*?)(</string>)",
                     Pattern.DOTALL);
+    private static final String SANITIZED_SUFFIX = "-sanitized-v2";
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -41,9 +43,10 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         File input = getInputArtifact().get().getAsFile();
         String outputName;
         if (input.getName().endsWith(".aar")) {
-            outputName = input.getName().substring(0, input.getName().length() - 4) + "-sanitized.aar";
+            outputName =
+                    input.getName().substring(0, input.getName().length() - 4) + SANITIZED_SUFFIX + ".aar";
         } else {
-            outputName = input.getName() + "-sanitized";
+            outputName = input.getName() + SANITIZED_SUFFIX;
         }
         File output = outputs.file(outputName);
         File tempDir;
@@ -89,9 +92,13 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
             StringBuffer buffer = new StringBuffer();
             boolean filePatched = false;
             while (matcher.find()) {
-                String replacement = matcher.group(1) + "%1$s" + matcher.group(3);
-                matcher.appendReplacement(buffer, Matcher.quoteReplacement(replacement));
-                filePatched = true;
+                String content = matcher.group(2);
+                String sanitized = sanitizePromptHeaderContent(content);
+                if (!sanitized.equals(content)) {
+                    String replacement = matcher.group(1) + sanitized + matcher.group(3);
+                    matcher.appendReplacement(buffer, Matcher.quoteReplacement(replacement));
+                    filePatched = true;
+                }
             }
             if (filePatched) {
                 matcher.appendTail(buffer);
@@ -100,6 +107,14 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
             }
         }
         return patchedAny;
+    }
+
+    private static String sanitizePromptHeaderContent(String content) {
+        String sanitized = content;
+        sanitized = sanitized.replace("\"{str}\"", "\"%1$s\"");
+        sanitized = sanitized.replace("&quot;{str}&quot;", "&quot;%1$s&quot;");
+        sanitized = sanitized.replace("{str}", "%1$s");
+        return sanitized;
     }
 
     private static List<File> findValuesXmlFiles(File root) {
