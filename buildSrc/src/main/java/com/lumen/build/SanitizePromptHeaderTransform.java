@@ -2,14 +2,12 @@ package com.lumen.build;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
-import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -17,6 +15,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -29,7 +29,9 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String INVALID_TOKEN = "\"{str}\"";
+    private static final Pattern PROMPT_HEADER_PATTERN =
+            Pattern.compile("(<string[^>]*name=\\\"prompt_header\\\"[^>]*>)(.*?)(</string>)",
+                    Pattern.DOTALL);
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -82,15 +84,19 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         boolean patchedAny = false;
         List<File> valuesFiles = findValuesXmlFiles(root);
         for (File file : valuesFiles) {
-            String original = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-            if (original.contains(INVALID_TOKEN)) {
-                String patched = original.replace(INVALID_TOKEN, "\"%1$s\"");
-                if (!patched.equals(original)) {
-                    try (BufferedWriter writer = Files.newBufferedWriter(file.toPath(), StandardCharsets.UTF_8)) {
-                        writer.write(patched);
-                    }
-                    patchedAny = true;
-                }
+            String original = Files.readString(file.toPath());
+            Matcher matcher = PROMPT_HEADER_PATTERN.matcher(original);
+            StringBuffer buffer = new StringBuffer();
+            boolean filePatched = false;
+            while (matcher.find()) {
+                String replacement = matcher.group(1) + "%1$s" + matcher.group(3);
+                matcher.appendReplacement(buffer, Matcher.quoteReplacement(replacement));
+                filePatched = true;
+            }
+            if (filePatched) {
+                matcher.appendTail(buffer);
+                Files.writeString(file.toPath(), buffer.toString());
+                patchedAny = true;
             }
         }
         return patchedAny;
@@ -109,12 +115,24 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
             for (File child : children) {
                 if (child.isDirectory()) {
                     stack.push(child);
-                } else if ("values.xml".equals(child.getName())) {
+                } else if (child.getName().endsWith(".xml") && isValuesDirectory(child.getParentFile())) {
                     files.add(child);
                 }
             }
         }
         return files;
+    }
+
+    private static boolean isValuesDirectory(File directory) {
+        if (directory == null) {
+            return false;
+        }
+        String name = directory.getName();
+        if (!name.startsWith("values")) {
+            return false;
+        }
+        File parent = directory.getParentFile();
+        return parent != null && "res".equals(parent.getName());
     }
 
     private static void unzipTo(File input, File destination) throws IOException {
