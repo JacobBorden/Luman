@@ -30,7 +30,7 @@ fun ExploreScreen(viewModel: ExploreViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = stringResource(id = R.string.explore_prompt_header),
+            text = stringResource(id = R.string.prompt_header),
             style = MaterialTheme.typography.titleLarge
         )
         LazyColumn(

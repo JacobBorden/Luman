@@ -1,6 +1,28 @@
+import java.io.File
+import org.gradle.api.logging.Logger
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+}
+
+private fun File.replaceInvalidPromptHeaderStrings(logger: Logger) {
+    if (!exists()) {
+        return
+    }
+    val token = "\"{str}\""
+    walkTopDown()
+        .filter { it.isFile && it.name == "values.xml" }
+        .forEach { file ->
+            val original = file.readText()
+            if (token in original) {
+                val patched = original.replace(token, "\"%1\$s\"")
+                if (patched != original) {
+                    file.writeText(patched)
+                    logger.info("Patched invalid prompt_header resource in ${file.absolutePath}")
+                }
+            }
+        }
 }
 
 android {
@@ -66,4 +88,22 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+val gradleProject = project
+
+android.applicationVariants.all {
+    mergeResourcesProvider.configure {
+        doFirst {
+            val gradleHome = gradleProject.gradle.gradleUserHomeDir
+            listOf(
+                File(gradleHome, "caches/transforms-3"),
+                File(gradleHome, "caches/transforms-2"),
+                gradleProject.layout.buildDirectory.dir("intermediates").get().asFile,
+                gradleProject.layout.buildDirectory.dir("tmp").get().asFile
+            ).forEach { dir ->
+                dir.replaceInvalidPromptHeaderStrings(gradleProject.logger)
+            }
+        }
+    }
 }
