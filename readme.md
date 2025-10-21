@@ -2,7 +2,11 @@
 
 > *Capture your mood. Curate your light.*
 
-Lumen (formerly "Moments") is an offline-first visual journaling concept for Android built with Kotlin and Jetpack Compose. It blends the visual minimalism of VSCO, the curatorial feel of Pinterest, and the intimacy of a private mood diary to help you preserve how your day *felt*, not just how it looked.
+Lumen (formerly "Moments") is an offline-first visual journaling concept for Android.
+It is built with Kotlin and Jetpack Compose.
+The experience blends the visual minimalism of VSCO and the curatorial feel of Pinterest.
+It also keeps the intimacy of a private mood diary.
+The goal is to preserve how your day *felt*, not just how it looked.
 
 ---
 
@@ -15,19 +19,21 @@ Each entry in Lumen is a **visual vignette** captured as a personal mood moment:
 - **Caption** *(optional)* — Add a note that anchors the memory.
 - **Timestamp** — Automatically saved so your mosaic forms a timeline.
 
-Your home screen becomes a scrolling mosaic of memories, rendered as a minimalist VSCO-style grid with no likes, follows, or algorithmic noise—just aesthetic memory curated for yourself.
+Your home screen becomes a scrolling mosaic of memories, rendered as a minimalist VSCO-style grid.
+There are no likes, follows, or algorithmic noise—just aesthetic memory curated for yourself.
 
 ---
 
 ## 🎯 Minimal V1 Feature Set
 
-| Feature                                  | Description                                                | Stack / Tools                    |
-| ---------------------------------------- | ---------------------------------------------------------- | -------------------------------- |
-| **Feed Grid**                            | Offline-first mosaic of saved moments with pinch-to-zoom   | Jetpack Compose `LazyVerticalGrid` |
-| **Add Moment Screen**                    | Capture/import image, assign mood tone, write a caption    | CameraX, Compose, Material 3     |
-| **Local Persistence**                    | Store entries locally with export/import support           | Room, Kotlinx Serialization, Flow|
-| **Theme Engine**                         | Derive accent colors from each moment's palette            | Android Palette API              |
-| **Explore Tab (Prototype)**              | Curated prompts like “a place that calmed you today”       | Local static JSON (Firebase later)|
+- **Feed Grid** — Offline-first mosaic of saved moments with pinch-to-zoom using Compose
+  `LazyVerticalGrid`.
+- **Add Moment Screen** — Capture or import imagery,
+  assign a tone, and add a caption with Material 3 components.
+- **Local Persistence** — Store entries locally with export and import support using Room and Flow.
+- **Theme Engine** — Derive accent colors from each moment's palette via the Android Palette API.
+- **Explore Tab (Prototype)** — Curated prompts such as “a place that calmed you today” sourced from
+  local data.
 
 ---
 
@@ -35,7 +41,9 @@ Your home screen becomes a scrolling mosaic of memories, rendered as a minimalis
 
 > “If Pinterest is about what we want, and VSCO is about how we look, Lumen is about how we *felt.*”
 
-Every grid square is a pixel of the soul’s timeline. Over time, the collection becomes a modular memory system that mirrors your internal landscape through images and gentle annotations.
+Every grid square is a pixel of the soul’s timeline.
+Over time, the collection becomes a modular memory system.
+It mirrors your internal landscape through images and gentle annotations.
 
 ---
 
@@ -91,7 +99,7 @@ lumen-android/
 
 - **Language:** Kotlin with Jetpack Compose (Material 3)
 - **Architecture:** MVVM with Kotlin Coroutines & Flow
-- **Persistence:** Room database with JSON export/import
+- **Persistence:** Room database with JSON export and import
 - **Media:** CameraX for capture, Android Palette API for color extraction
 - **Theming:** Dynamic accent hues generated from uploaded images
 - **Offline-first:** All data stored locally, sync optional in later phases
@@ -100,20 +108,37 @@ lumen-android/
 
 ## 🚀 Getting Started (Concept Draft)
 
-1. Scaffold the Android project using Android Studio Flamingo+.
+1. Scaffold the Android project using Android Studio Flamingo or newer.
 2. Set up Jetpack Compose with Material 3 and `LazyVerticalGrid` for the feed.
 3. Implement the `Moment` data model (image URI, tone, caption, timestamp).
-4. Configure Room entities/DAO with Flow-powered repositories.
-5. Build `MainActivity` hosting a `NavHost` for **Feed**, **Add Moment**, and **Explore**.
-6. Wire CameraX + Storage permissions to capture and persist new moments.
+4. Configure Room entities and DAO with Flow-powered repositories.
+5. Build `MainActivity` with a `NavHost` for **Feed**, **Add Moment**, and **Explore** destinations.
+   This provides a single-activity shell for the prototype experience.
+6. Wire CameraX plus storage permissions to capture and persist new moments.
 7. Apply Palette-based theming to generate accent colors per entry.
-8. Add export/import utilities using Kotlinx Serialization for JSON backups.
+8. Add export and import utilities using Kotlinx Serialization for JSON backups.
+
+---
+
+## 🧪 MVP Prototype
+
+An initial Jetpack Compose prototype lives under `app/src/main/java/com/lumen/`. It ships with:
+
+- A `LumenApp` navigation shell linking **Feed**, **Add**, and **Explore** screens.
+- Sample `MomentRepository` data powering a mood mosaic grid using `LazyVerticalGrid`.
+- Lightweight view models to simulate saving moments and rotating curated prompts.
+
+This mockup is UI-focused and keeps state in memory so the experience can be previewed quickly in
+Android Studio’s emulator or Compose previews.
+Replacing the repository with a Room-backed data source is the next step toward feature-complete
+functionality.
 
 ---
 
 ## 🤝 Contributing & Next Steps
 
-This README serves as a creative and technical north star for building Lumen. If you’re iterating on the concept:
+This README serves as a creative and technical north star for building Lumen.
+If you’re iterating on the concept:
 
 - Open issues for design explorations or feature experiments.
 - Share Figma frames, Compose prototypes, or palette studies.
