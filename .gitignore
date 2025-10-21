@@ -13,3 +13,4 @@
 .gradle/
 app/build/
 .idea/
+buildSrc/build/
