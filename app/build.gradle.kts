@@ -1,5 +1,6 @@
 import java.io.File
 import org.gradle.api.GradleException
+import org.gradle.api.Project
 import org.gradle.api.logging.Logger
 
 plugins {
@@ -27,6 +28,20 @@ fun File.replaceInvalidPromptHeaderStrings(logger: Logger): Boolean {
             }
         }
     return patchedAny
+}
+
+fun Project.sanitizePromptHeaderCaches() {
+    val projectLogger = this.logger
+    layout.buildDirectory.get().asFile.replaceInvalidPromptHeaderStrings(projectLogger)
+
+    val cachesDir = File(gradle.gradleUserHomeDir, "caches")
+    if (cachesDir.exists()) {
+        cachesDir
+            .listFiles { file -> file.isDirectory && file.name.startsWith("transforms-") }
+            ?.forEach { transformDir ->
+                transformDir.replaceInvalidPromptHeaderStrings(projectLogger)
+            }
+    }
 }
 
 android {
@@ -99,6 +114,7 @@ val gradleProject = project
 android.applicationVariants.all {
     mergeResourcesProvider.configure {
         doFirst {
+            gradleProject.sanitizePromptHeaderCaches()
             // Patch any dependency resource inputs that still ship the malformed prompt string
             inputs.files
                 .filter { it.exists() }
