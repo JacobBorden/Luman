@@ -6,7 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-private fun File.replaceInvalidPromptHeaderStrings(logger: Logger) {
+fun File.replaceInvalidPromptHeaderStrings(logger: Logger) {
     if (!exists()) {
         return
     }
