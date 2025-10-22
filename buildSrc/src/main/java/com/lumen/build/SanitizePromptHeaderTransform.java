@@ -30,13 +30,13 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v6";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v7";
     private static final Pattern PROMPT_HEADER_PATTERN =
             Pattern.compile(
                     "(<string\\b[^>]*\\bname\\s*=\\s*(['\"])prompt_header\\2[^>]*>)(.*?)(</string>)",
                     Pattern.DOTALL);
     private static final Pattern PROMPT_PLACEHOLDER_PATTERN =
-            Pattern.compile("\\{\\s*str\\s*\\}", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("(?:\\\\\\s*)*\\{\\s*str\\s*(?:\\\\\\s*)*\\}", Pattern.CASE_INSENSITIVE);
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -107,7 +107,10 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
             String closing = matcher.group(4);
             String sanitized = content;
             if (content != null) {
-                String replaced = PROMPT_PLACEHOLDER_PATTERN.matcher(content).replaceAll("%1\\$s");
+                String replaced =
+                        PROMPT_PLACEHOLDER_PATTERN
+                                .matcher(content)
+                                .replaceAll(Matcher.quoteReplacement("%1$s"));
                 if (!replaced.equals(content)) {
                     sanitized = replaced;
                 }
