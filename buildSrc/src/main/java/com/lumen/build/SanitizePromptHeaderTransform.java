@@ -15,7 +15,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -30,12 +32,13 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v5";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v6";
     private static final Pattern PROMPT_HEADER_PATTERN =
             Pattern.compile(
-                    "(<string\\b[^>]*\\bname\\s*=\\s*\"prompt_header\"[^>]*>)(.*?)(</string>)",
+                    "(<([a-zA-Z0-9_:-]+)[^>]*name\\s*=\\s*\"prompt_header\"[^>]*>)(.*?)(</\\2>)",
                     Pattern.DOTALL);
-    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\\\?\\{[^}]*\\}");
+    private static final Pattern PLACEHOLDER_PATTERN =
+            Pattern.compile("\\\\?" + "\\{" + "[^}]*" + "\\}");
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -102,8 +105,8 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         boolean modified = false;
         while (matcher.find()) {
             String opening = matcher.group(1);
-            String content = matcher.group(2);
-            String closing = matcher.group(3);
+            String content = matcher.group(3);
+            String closing = matcher.group(4);
             String sanitized = sanitizePlaceholders(content);
             if (!sanitized.equals(content)) {
                 modified = true;
@@ -125,13 +128,20 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         }
         Matcher placeholderMatcher = PLACEHOLDER_PATTERN.matcher(content);
         StringBuffer sanitizedBuffer = new StringBuffer(content.length());
+        Map<String, Integer> placeholderOrder = new LinkedHashMap<>();
         boolean replaced = false;
-        int argumentIndex = 1;
+        int nextIndex = 1;
         while (placeholderMatcher.find()) {
-            String replacement = "%" + argumentIndex + "$s";
+            String placeholder = placeholderMatcher.group();
+            String normalized = placeholder.replace("\\", "");
+            Integer assignedIndex = placeholderOrder.get(normalized);
+            if (assignedIndex == null) {
+                assignedIndex = nextIndex++;
+                placeholderOrder.put(normalized, assignedIndex);
+            }
+            String replacement = "%" + assignedIndex + "$s";
             placeholderMatcher.appendReplacement(
                     sanitizedBuffer, Matcher.quoteReplacement(replacement));
-            argumentIndex++;
             replaced = true;
         }
         if (!replaced) {
