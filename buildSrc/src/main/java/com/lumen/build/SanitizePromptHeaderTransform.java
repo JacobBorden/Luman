@@ -30,12 +30,14 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v10";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v11";
     private static final String PLACEHOLDER_REPLACEMENT = "%1$s";
     private static final Pattern PROMPT_HEADER_PATTERN =
             Pattern.compile(
-                    "(<string\\b[^>]*\\bname\\s*=\\s*(['\"])prompt_header\\2[^>]*>)(.*?)(</string>)",
+                    "(<(string|item)\\b[^>]*\\bname\\s*=\\s*(['\"])prompt_header\\3[^>]*>)(.*?)(</\\2>)",
                     Pattern.DOTALL);
+    private static final Pattern STRING_ITEM_TYPE_PATTERN =
+            Pattern.compile("\\btype\\s*=\\s*(['\"])string\\1", Pattern.CASE_INSENSITIVE);
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -97,32 +99,41 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
 
     private static boolean sanitizePromptHeaderFile(File file) throws IOException {
         String original = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-        Matcher matcher = PROMPT_HEADER_PATTERN.matcher(original);
-        StringBuffer buffer = new StringBuffer(original.length());
+        String sanitized = sanitizePromptHeaderResourcesXml(original);
+        if (sanitized.equals(original)) {
+            return false;
+        }
+        Files.writeString(file.toPath(), sanitized, StandardCharsets.UTF_8);
+        return true;
+    }
+
+    static String sanitizePromptHeaderResourcesXml(String xml) {
+        Matcher matcher = PROMPT_HEADER_PATTERN.matcher(xml);
+        StringBuffer buffer = new StringBuffer(xml.length());
         boolean modified = false;
         while (matcher.find()) {
             String opening = matcher.group(1);
-            String content = matcher.group(3);
-            String closing = matcher.group(4);
-            String sanitized = content;
-            if (content != null) {
-                String replaced = sanitizePromptHeaderContent(content);
-                if (!replaced.equals(content)) {
-                    sanitized = replaced;
-                }
+            String tagName = matcher.group(2);
+            String content = matcher.group(4);
+            String closing = matcher.group(5);
+            if ("item".equals(tagName)
+                    && !STRING_ITEM_TYPE_PATTERN.matcher(opening).find()) {
+                matcher.appendReplacement(
+                        buffer, Matcher.quoteReplacement(opening + content + closing));
+                continue;
             }
-            if (!sanitized.equals(content)) {
+            String sanitizedContent = sanitizePromptHeaderContent(content);
+            if (!sanitizedContent.equals(content)) {
                 modified = true;
             }
             matcher.appendReplacement(
-                    buffer, Matcher.quoteReplacement(opening + sanitized + closing));
+                    buffer, Matcher.quoteReplacement(opening + sanitizedContent + closing));
         }
         matcher.appendTail(buffer);
         if (!modified) {
-            return false;
+            return xml;
         }
-        Files.writeString(file.toPath(), buffer.toString(), StandardCharsets.UTF_8);
-        return true;
+        return buffer.toString();
     }
 
     static String sanitizePromptHeaderContent(String content) {
