@@ -32,7 +32,7 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v6";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v7";
     private static final Pattern PROMPT_HEADER_PATTERN =
             Pattern.compile(
                     "(<([a-zA-Z0-9_:-]+)[^>]*name\\s*=\\s*\"prompt_header\"[^>]*>)(.*?)(</\\2>)",
@@ -133,11 +133,7 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         int nextIndex = 1;
         while (placeholderMatcher.find()) {
             String placeholder = placeholderMatcher.group();
-            String normalized = placeholder.replace("\\", "");
-            String placeholderKey = normalized;
-            if (normalized.startsWith("{") && normalized.endsWith("}")) {
-                placeholderKey = normalized.substring(1, normalized.length() - 1).trim();
-            }
+            String placeholderKey = canonicalizePlaceholderKey(placeholder);
             Integer assignedIndex = placeholderOrder.get(placeholderKey);
             if (assignedIndex == null) {
                 assignedIndex = nextIndex++;
@@ -153,6 +149,17 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         }
         placeholderMatcher.appendTail(sanitizedBuffer);
         return sanitizedBuffer.toString();
+    }
+
+    private static String canonicalizePlaceholderKey(String placeholder) {
+        if (placeholder == null || placeholder.isEmpty()) {
+            return "";
+        }
+        String normalized = placeholder.replace("\\", "");
+        if (normalized.startsWith("{") && normalized.endsWith("}")) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
+        return normalized.trim();
     }
 
     private static List<File> findValuesXmlFiles(File root) {
