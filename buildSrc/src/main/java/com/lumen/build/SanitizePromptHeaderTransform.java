@@ -134,10 +134,14 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         while (placeholderMatcher.find()) {
             String placeholder = placeholderMatcher.group();
             String normalized = placeholder.replace("\\", "");
-            Integer assignedIndex = placeholderOrder.get(normalized);
+            String placeholderKey = normalized;
+            if (normalized.startsWith("{") && normalized.endsWith("}")) {
+                placeholderKey = normalized.substring(1, normalized.length() - 1).trim();
+            }
+            Integer assignedIndex = placeholderOrder.get(placeholderKey);
             if (assignedIndex == null) {
                 assignedIndex = nextIndex++;
-                placeholderOrder.put(normalized, assignedIndex);
+                placeholderOrder.put(placeholderKey, assignedIndex);
             }
             String replacement = "%" + assignedIndex + "$s";
             placeholderMatcher.appendReplacement(
