@@ -7,6 +7,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -16,11 +18,19 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
 import org.gradle.api.GradleException;
 import org.gradle.api.artifacts.transform.InputArtifact;
 import org.gradle.api.artifacts.transform.TransformAction;
@@ -28,17 +38,16 @@ import org.gradle.api.artifacts.transform.TransformOutputs;
 import org.gradle.api.artifacts.transform.TransformParameters;
 import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v11";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v12";
     private static final String PLACEHOLDER_REPLACEMENT = "%1$s";
-    private static final Pattern PROMPT_HEADER_PATTERN =
-            Pattern.compile(
-                    "(<(string|item)\\b[^>]*\\bname\\s*=\\s*(['\"])prompt_header\\3[^>]*>)(.*?)(</\\2>)",
-                    Pattern.DOTALL);
-    private static final Pattern STRING_ITEM_TYPE_PATTERN =
-            Pattern.compile("\\btype\\s*=\\s*(['\"])string\\1", Pattern.CASE_INSENSITIVE);
-
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
 
@@ -108,32 +117,138 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
     }
 
     static String sanitizePromptHeaderResourcesXml(String xml) {
-        Matcher matcher = PROMPT_HEADER_PATTERN.matcher(xml);
-        StringBuffer buffer = new StringBuffer(xml.length());
-        boolean modified = false;
-        while (matcher.find()) {
-            String opening = matcher.group(1);
-            String tagName = matcher.group(2);
-            String content = matcher.group(4);
-            String closing = matcher.group(5);
-            if ("item".equals(tagName)
-                    && !STRING_ITEM_TYPE_PATTERN.matcher(opening).find()) {
-                matcher.appendReplacement(
-                        buffer, Matcher.quoteReplacement(opening + content + closing));
-                continue;
-            }
-            String sanitizedContent = sanitizePromptHeaderContent(content);
-            if (!sanitizedContent.equals(content)) {
-                modified = true;
-            }
-            matcher.appendReplacement(
-                    buffer, Matcher.quoteReplacement(opening + sanitizedContent + closing));
+        Document document = parseXmlDocument(xml);
+        if (document == null) {
+            return xml;
         }
-        matcher.appendTail(buffer);
+        boolean modified = sanitizePromptHeaderDocument(document);
         if (!modified) {
             return xml;
         }
-        return buffer.toString();
+        try {
+            return serializeDocument(document, hasXmlDeclaration(xml));
+        } catch (TransformerException exception) {
+            throw new GradleException("Failed to serialize sanitized resources", exception);
+        }
+    }
+
+    private static Document parseXmlDocument(String xml) {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setExpandEntityReferences(false);
+        try {
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        } catch (ParserConfigurationException ignored) {
+            // ignore when feature not supported
+        }
+        try {
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        } catch (IllegalArgumentException ignored) {
+            // ignore when attribute not supported
+        }
+        DocumentBuilder builder;
+        try {
+            builder = factory.newDocumentBuilder();
+        } catch (ParserConfigurationException exception) {
+            return null;
+        }
+        try {
+            return builder.parse(new InputSource(new StringReader(xml)));
+        } catch (SAXException | IOException exception) {
+            return null;
+        }
+    }
+
+    private static boolean sanitizePromptHeaderDocument(Document document) {
+        boolean modified = false;
+        NodeList stringNodes = document.getElementsByTagName("string");
+        modified = sanitizePromptHeaderElements(stringNodes, false) || modified;
+        NodeList itemNodes = document.getElementsByTagName("item");
+        modified = sanitizePromptHeaderElements(itemNodes, true) || modified;
+        return modified;
+    }
+
+    private static boolean sanitizePromptHeaderElements(NodeList nodes, boolean requireStringType) {
+        boolean modified = false;
+        for (int index = 0; index < nodes.getLength(); index++) {
+            Node node = nodes.item(index);
+            if (!(node instanceof Element)) {
+                continue;
+            }
+            Element element = (Element) node;
+            if (!"prompt_header".equals(element.getAttribute("name"))) {
+                continue;
+            }
+            if (requireStringType) {
+                String type = element.getAttribute("type");
+                if (type == null || type.isEmpty() || !"string".equalsIgnoreCase(type)) {
+                    continue;
+                }
+            }
+            if (sanitizePromptHeaderElement(element)) {
+                modified = true;
+            }
+        }
+        return modified;
+    }
+
+    private static boolean sanitizePromptHeaderElement(Element element) {
+        String textContent = element.getTextContent();
+        if (textContent == null || textContent.isEmpty()) {
+            return false;
+        }
+        String sanitized = sanitizePromptHeaderContent(textContent);
+        if (sanitized.equals(textContent)) {
+            return false;
+        }
+        clearChildren(element);
+        Node textNode = element.getOwnerDocument().createTextNode(sanitized);
+        element.appendChild(textNode);
+        return true;
+    }
+
+    private static void clearChildren(Element element) {
+        while (element.hasChildNodes()) {
+            element.removeChild(element.getFirstChild());
+        }
+    }
+
+    private static boolean hasXmlDeclaration(String xml) {
+        int index = 0;
+        int length = xml.length();
+        while (index < length && Character.isWhitespace(xml.charAt(index))) {
+            index++;
+        }
+        return index + 5 < length
+                && xml.charAt(index) == '<'
+                && xml.startsWith("?xml", index + 1);
+    }
+
+    private static String serializeDocument(Document document, boolean includeDeclaration)
+            throws TransformerException {
+        TransformerFactory factory = TransformerFactory.newInstance();
+        try {
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        } catch (TransformerException ignored) {
+            // ignore when feature not supported
+        }
+        try {
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+        } catch (IllegalArgumentException ignored) {
+            // ignore when attribute not supported
+        }
+        Transformer transformer = factory.newTransformer();
+        transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
+        transformer.setOutputProperty(
+                OutputKeys.OMIT_XML_DECLARATION, includeDeclaration ? "no" : "yes");
+        transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
+        StringWriter writer = new StringWriter();
+        transformer.transform(new DOMSource(document), new StreamResult(writer));
+        return writer.toString();
     }
 
     static String sanitizePromptHeaderContent(String content) {
