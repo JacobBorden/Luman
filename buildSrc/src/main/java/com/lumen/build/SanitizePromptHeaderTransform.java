@@ -30,7 +30,7 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v9";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v10";
     private static final String PLACEHOLDER_REPLACEMENT = "%1$s";
     private static final Pattern PROMPT_HEADER_PATTERN =
             Pattern.compile(
@@ -246,6 +246,7 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
             char[] digits = leftBracket ? HEX_LEFT_DIGITS : HEX_RIGHT_DIGITS;
             cursor = consumeSequence(content, cursor, digits, true);
         } else {
+            cursor = consumeLeadingZeros(content, cursor);
             char[] digits = leftBracket ? DECIMAL_LEFT_DIGITS : DECIMAL_RIGHT_DIGITS;
             cursor = consumeSequence(content, cursor, digits, false);
         }

@@ -27,6 +27,11 @@ public class SanitizePromptHeaderTransformTest {
     }
 
     @Test
+    public void replacesDecimalEntityWithLeadingZeros() {
+        assertEquals("%1$s", sanitize("&#00123;str&#000125;"));
+    }
+
+    @Test
     public void replacesMixedEncodingPlaceholder() {
         assertEquals("%1$s", sanitize("&#123;str\\u007d"));
         assertEquals("%1$s", sanitize("\\u007bstr&#125;"));
