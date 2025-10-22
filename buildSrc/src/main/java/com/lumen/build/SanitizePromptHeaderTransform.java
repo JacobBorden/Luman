@@ -30,24 +30,12 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v8";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v9";
     private static final String PLACEHOLDER_REPLACEMENT = "%1$s";
     private static final Pattern PROMPT_HEADER_PATTERN =
             Pattern.compile(
                     "(<string\\b[^>]*\\bname\\s*=\\s*(['\"])prompt_header\\2[^>]*>)(.*?)(</string>)",
                     Pattern.DOTALL);
-    private static final Pattern[] PROMPT_PLACEHOLDER_PATTERNS = {
-        Pattern.compile("(?:\\\\\\s*)*\\{\\s*str\\s*\\}(?:\\s*\\\\)*", Pattern.CASE_INSENSITIVE),
-        Pattern.compile(
-                "(?:\\\\\\s*)*&#\\s*123;\\s*str\\s*&#\\s*125;(?:\\s*\\\\)*",
-                Pattern.CASE_INSENSITIVE),
-        Pattern.compile(
-                "(?:\\\\\\s*)*&#\\s*x0*7[bB];\\s*str\\s*&#\\s*x0*7[dD];(?:\\s*\\\\)*",
-                Pattern.CASE_INSENSITIVE),
-        Pattern.compile(
-                "(?:\\\\\\s*)*\\\\u0*7[bB]\\s*str\\s*\\\\u0*7[dD](?:\\s*\\\\)*",
-                Pattern.CASE_INSENSITIVE),
-    };
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -137,25 +125,220 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         return true;
     }
 
-    private static String sanitizePromptHeaderContent(String content) {
-        String sanitized = content;
-        for (Pattern pattern : PROMPT_PLACEHOLDER_PATTERNS) {
-            sanitized = replacePromptPlaceholder(sanitized, pattern);
+    static String sanitizePromptHeaderContent(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
         }
-        return sanitized;
+        StringBuilder sanitized = new StringBuilder(content.length());
+        int index = 0;
+        while (index < content.length()) {
+            PlaceholderMatch match = findNextPlaceholder(content, index);
+            if (match == null) {
+                sanitized.append(content, index, content.length());
+                break;
+            }
+            if (match.start > index) {
+                sanitized.append(content, index, match.start);
+            }
+            sanitized.append(PLACEHOLDER_REPLACEMENT);
+            index = match.end;
+        }
+        return sanitized.toString();
     }
 
-    private static String replacePromptPlaceholder(String input, Pattern pattern) {
-        Matcher matcher = pattern.matcher(input);
-        if (!matcher.find()) {
-            return input;
+    private static PlaceholderMatch findNextPlaceholder(String content, int fromIndex) {
+        for (int candidate = fromIndex; candidate < content.length(); candidate++) {
+            PlaceholderMatch match = matchPlaceholderAt(content, candidate);
+            if (match != null) {
+                return match;
+            }
         }
-        StringBuffer buffer = new StringBuffer(input.length());
-        do {
-            matcher.appendReplacement(buffer, Matcher.quoteReplacement(PLACEHOLDER_REPLACEMENT));
-        } while (matcher.find());
-        matcher.appendTail(buffer);
-        return buffer.toString();
+        return null;
+    }
+
+    private static PlaceholderMatch matchPlaceholderAt(String content, int index) {
+        int leftEnd = matchBracketToken(content, index, true);
+        if (leftEnd == -1) {
+            return null;
+        }
+        int strStart = skipWhitespace(content, leftEnd);
+        int strEnd = matchStrToken(content, strStart);
+        if (strEnd == -1) {
+            return null;
+        }
+        int rightStart = skipWhitespace(content, strEnd);
+        int rightEnd = matchBracketToken(content, rightStart, false);
+        if (rightEnd == -1) {
+            return null;
+        }
+        return new PlaceholderMatch(index, rightEnd);
+    }
+
+    private static int matchBracketToken(String content, int index, boolean left) {
+        int backslashCount = countBackslashes(content, index);
+        int unicodeEnd = matchUnicodeEscape(content, index, backslashCount, left);
+        if (unicodeEnd != -1) {
+            return unicodeEnd;
+        }
+        int tokenStart = index + backslashCount;
+        int htmlEnd = matchHtmlEntity(content, tokenStart, left);
+        if (htmlEnd != -1) {
+            return htmlEnd;
+        }
+        int literalEnd = matchLiteralBrace(content, tokenStart, left);
+        if (literalEnd != -1) {
+            return literalEnd;
+        }
+        return -1;
+    }
+
+    private static int countBackslashes(String content, int index) {
+        int cursor = index;
+        int length = content.length();
+        while (cursor < length && content.charAt(cursor) == '\\') {
+            cursor++;
+        }
+        return cursor - index;
+    }
+
+    private static int matchUnicodeEscape(
+            String content, int index, int backslashCount, boolean leftBracket) {
+        if (backslashCount == 0) {
+            return -1;
+        }
+        int cursor = index + backslashCount;
+        if (cursor >= content.length()) {
+            return -1;
+        }
+        char letter = content.charAt(cursor);
+        if (!isCharIgnoreCase(letter, 'u')) {
+            return -1;
+        }
+        cursor++;
+        cursor = skipWhitespace(content, cursor);
+        cursor = consumeLeadingZeros(content, cursor);
+        char[] digits = leftBracket ? HEX_LEFT_DIGITS : HEX_RIGHT_DIGITS;
+        cursor = consumeSequence(content, cursor, digits, true);
+        return cursor;
+    }
+
+    private static int matchHtmlEntity(String content, int index, boolean leftBracket) {
+        if (index >= content.length() || content.charAt(index) != '&') {
+            return -1;
+        }
+        int cursor = index + 1;
+        if (cursor >= content.length() || content.charAt(cursor) != '#') {
+            return -1;
+        }
+        cursor++;
+        cursor = skipWhitespace(content, cursor);
+        boolean hex = false;
+        if (cursor < content.length()) {
+            char mode = content.charAt(cursor);
+            if (isCharIgnoreCase(mode, 'x')) {
+                hex = true;
+                cursor++;
+                cursor = skipWhitespace(content, cursor);
+            }
+        }
+        if (hex) {
+            cursor = consumeLeadingZeros(content, cursor);
+            char[] digits = leftBracket ? HEX_LEFT_DIGITS : HEX_RIGHT_DIGITS;
+            cursor = consumeSequence(content, cursor, digits, true);
+        } else {
+            char[] digits = leftBracket ? DECIMAL_LEFT_DIGITS : DECIMAL_RIGHT_DIGITS;
+            cursor = consumeSequence(content, cursor, digits, false);
+        }
+        if (cursor == -1) {
+            return -1;
+        }
+        cursor = skipWhitespace(content, cursor);
+        if (cursor >= content.length() || content.charAt(cursor) != ';') {
+            return -1;
+        }
+        return cursor + 1;
+    }
+
+    private static int matchLiteralBrace(String content, int index, boolean leftBracket) {
+        if (index >= content.length()) {
+            return -1;
+        }
+        char expected = leftBracket ? '{' : '}';
+        if (content.charAt(index) != expected) {
+            return -1;
+        }
+        return index + 1;
+    }
+
+    private static int matchStrToken(String content, int index) {
+        if (index + 3 > content.length()) {
+            return -1;
+        }
+        if (!content.regionMatches(true, index, "str", 0, 3)) {
+            return -1;
+        }
+        return index + 3;
+    }
+
+    private static int skipWhitespace(String content, int index) {
+        int cursor = index;
+        int length = content.length();
+        while (cursor < length && Character.isWhitespace(content.charAt(cursor))) {
+            cursor++;
+        }
+        return cursor;
+    }
+
+    private static int consumeLeadingZeros(String content, int index) {
+        int cursor = index;
+        while (true) {
+            int next = skipWhitespace(content, cursor);
+            if (next < content.length() && content.charAt(next) == '0') {
+                cursor = next + 1;
+            } else {
+                return next;
+            }
+        }
+    }
+
+    private static int consumeSequence(
+            String content, int index, char[] sequence, boolean ignoreCase) {
+        int cursor = index;
+        for (char expected : sequence) {
+            cursor = skipWhitespace(content, cursor);
+            if (cursor >= content.length()) {
+                return -1;
+            }
+            char actual = content.charAt(cursor);
+            if (ignoreCase) {
+                actual = Character.toLowerCase(actual);
+                expected = Character.toLowerCase(expected);
+            }
+            if (actual != expected) {
+                return -1;
+            }
+            cursor++;
+        }
+        return cursor;
+    }
+
+    private static boolean isCharIgnoreCase(char value, char expected) {
+        return Character.toLowerCase(value) == Character.toLowerCase(expected);
+    }
+
+    private static final char[] HEX_LEFT_DIGITS = {'7', 'b'};
+    private static final char[] HEX_RIGHT_DIGITS = {'7', 'd'};
+    private static final char[] DECIMAL_LEFT_DIGITS = {'1', '2', '3'};
+    private static final char[] DECIMAL_RIGHT_DIGITS = {'1', '2', '5'};
+
+    private static final class PlaceholderMatch {
+        private final int start;
+        private final int end;
+
+        private PlaceholderMatch(int start, int end) {
+            this.start = start;
+            this.end = end;
+        }
     }
 
     private static List<File> findValuesXmlFiles(File root) {
