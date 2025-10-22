@@ -155,29 +155,42 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         if (placeholder == null || placeholder.isEmpty()) {
             return "";
         }
-        String normalized = placeholder.replace("\\", "");
-        if (normalized.startsWith("{") && normalized.endsWith("}")) {
-            normalized = normalized.substring(1, normalized.length() - 1);
+        int start = 0;
+        int end = placeholder.length();
+        if (placeholder.charAt(start) == '\\') {
+            start++;
         }
-        normalized = normalized.trim();
-        if (normalized.isEmpty()) {
-            return normalized;
+        if (start < end && placeholder.charAt(start) == '{') {
+            start++;
         }
-        StringBuilder collapsed = new StringBuilder(normalized.length());
-        boolean previousWasWhitespace = false;
-        for (int i = 0; i < normalized.length(); i++) {
-            char c = normalized.charAt(i);
-            if (Character.isWhitespace(c)) {
-                if (!previousWasWhitespace) {
-                    collapsed.append(' ');
-                    previousWasWhitespace = true;
+        if (end > start && placeholder.charAt(end - 1) == '}') {
+            end--;
+        }
+        if (start >= end) {
+            return "";
+        }
+        StringBuilder normalized = new StringBuilder(end - start);
+        boolean seenContent = false;
+        boolean pendingWhitespace = false;
+        for (int index = start; index < end; index++) {
+            char current = placeholder.charAt(index);
+            if (current == '\\') {
+                continue;
+            }
+            if (Character.isWhitespace(current)) {
+                if (seenContent) {
+                    pendingWhitespace = true;
                 }
             } else {
-                collapsed.append(c);
-                previousWasWhitespace = false;
+                if (pendingWhitespace) {
+                    normalized.append(' ');
+                    pendingWhitespace = false;
+                }
+                normalized.append(current);
+                seenContent = true;
             }
         }
-        return collapsed.toString();
+        return normalized.toString();
     }
 
     private static List<File> findValuesXmlFiles(File root) {
