@@ -1,50 +1,84 @@
 package com.lumen.build;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
+import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.Locale;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public final class SanitizePromptHeaderTransformTest {
-    private static final Method SANITIZE_METHOD;
+    private static final Method SANITIZE_FILE_METHOD;
 
     static {
         try {
-            SANITIZE_METHOD =
+            SANITIZE_FILE_METHOD =
                     SanitizePromptHeaderTransform.class.getDeclaredMethod(
-                            "sanitizePlaceholders", String.class);
-            SANITIZE_METHOD.setAccessible(true);
+                            "sanitizePromptHeaderFile", File.class);
+            SANITIZE_FILE_METHOD.setAccessible(true);
         } catch (NoSuchMethodException exception) {
             throw new ExceptionInInitializerError(exception);
         }
     }
 
-    private static String sanitize(String content) {
+    @Rule public final TemporaryFolder temporaryFolder = new TemporaryFolder();
+
+    @Test
+    public void sanitizePromptHeaderFile_rewritesRepeatedPlaceholderWithoutInvalidEscapes()
+            throws IOException {
+        Path valuesFile = createValuesFile(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>\"{ user }\" - {org} - {user}</string>\n"
+                        + "</resources>\n");
+
+        String original = Files.readString(valuesFile, StandardCharsets.UTF_8);
+        boolean modified = sanitize(valuesFile.toFile());
+        assertTrue(
+                "Expected prompt header resource to be sanitized. Original was: " + original,
+                modified);
+
+        String sanitized = Files.readString(valuesFile, StandardCharsets.UTF_8);
+        assertEquals(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>\"%1$s\" - %2$s - %1$s</string>\n"
+                        + "</resources>\n",
+                sanitized);
+        assertNoInvalidUnicodeEscapes(sanitized);
+    }
+
+    private Path createValuesFile(String contents) throws IOException {
+        File resDir = temporaryFolder.newFolder("res", "values");
+        Path file = resDir.toPath().resolve("strings.xml");
+        Files.writeString(file, contents, StandardCharsets.UTF_8);
+        return file;
+    }
+
+    private static boolean sanitize(File file) {
         try {
-            return (String) SANITIZE_METHOD.invoke(null, content);
+            return (Boolean) SANITIZE_FILE_METHOD.invoke(null, file);
         } catch (IllegalAccessException | InvocationTargetException exception) {
-            throw new RuntimeException("Unable to invoke sanitizePlaceholders", exception);
+            throw new RuntimeException("Unable to invoke sanitizePromptHeaderFile", exception);
         }
     }
 
-    @Test
-    public void sanitizePlaceholders_reusesIndexForRepeatedPlaceholder() {
-        String sanitized = sanitize("{user} • {user}");
-        assertEquals("%1$s • %1$s", sanitized);
-        assertEquals("Ada • Ada", String.format(Locale.US, sanitized, "Ada"));
-    }
-
-    @Test
-    public void sanitizePlaceholders_assignsSequentialIndicesToDistinctPlaceholders() {
-        String sanitized = sanitize("{user}:{org}");
-        assertEquals("%1$s:%2$s", sanitized);
-    }
-
-    @Test
-    public void sanitizePlaceholders_ignoresWhitespaceDifferencesForRepeatedPlaceholder() {
-        String sanitized = sanitize("{ user } vs {\tuser\n}");
-        assertEquals("%1$s vs %1$s", sanitized);
+    private static void assertNoInvalidUnicodeEscapes(String content) {
+        Pattern invalidUnicodePattern = Pattern.compile("\\\\u(?![0-9a-fA-F]{4})");
+        Matcher matcher = invalidUnicodePattern.matcher(content);
+        if (matcher.find()) {
+            throw new AssertionError(
+                    "Found invalid unicode escape sequence at index " + matcher.start() +
+                            " in sanitized content: " + content);
+        }
     }
 }
