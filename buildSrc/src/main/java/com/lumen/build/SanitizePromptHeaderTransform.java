@@ -30,13 +30,24 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v7";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v8";
+    private static final String PLACEHOLDER_REPLACEMENT = "%1$s";
     private static final Pattern PROMPT_HEADER_PATTERN =
             Pattern.compile(
                     "(<string\\b[^>]*\\bname\\s*=\\s*(['\"])prompt_header\\2[^>]*>)(.*?)(</string>)",
                     Pattern.DOTALL);
-    private static final Pattern PROMPT_PLACEHOLDER_PATTERN =
-            Pattern.compile("(?:\\\\\\s*)*\\{\\s*str\\s*(?:\\\\\\s*)*\\}", Pattern.CASE_INSENSITIVE);
+    private static final Pattern[] PROMPT_PLACEHOLDER_PATTERNS = {
+        Pattern.compile("(?:\\\\\\s*)*\\{\\s*str\\s*\\}(?:\\s*\\\\)*", Pattern.CASE_INSENSITIVE),
+        Pattern.compile(
+                "(?:\\\\\\s*)*&#\\s*123;\\s*str\\s*&#\\s*125;(?:\\s*\\\\)*",
+                Pattern.CASE_INSENSITIVE),
+        Pattern.compile(
+                "(?:\\\\\\s*)*&#\\s*x0*7[bB];\\s*str\\s*&#\\s*x0*7[dD];(?:\\s*\\\\)*",
+                Pattern.CASE_INSENSITIVE),
+        Pattern.compile(
+                "(?:\\\\\\s*)*\\\\u0*7[bB]\\s*str\\s*\\\\u0*7[dD](?:\\s*\\\\)*",
+                Pattern.CASE_INSENSITIVE),
+    };
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -107,10 +118,7 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
             String closing = matcher.group(4);
             String sanitized = content;
             if (content != null) {
-                String replaced =
-                        PROMPT_PLACEHOLDER_PATTERN
-                                .matcher(content)
-                                .replaceAll(Matcher.quoteReplacement("%1$s"));
+                String replaced = sanitizePromptHeaderContent(content);
                 if (!replaced.equals(content)) {
                     sanitized = replaced;
                 }
@@ -127,6 +135,27 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         }
         Files.writeString(file.toPath(), buffer.toString(), StandardCharsets.UTF_8);
         return true;
+    }
+
+    private static String sanitizePromptHeaderContent(String content) {
+        String sanitized = content;
+        for (Pattern pattern : PROMPT_PLACEHOLDER_PATTERNS) {
+            sanitized = replacePromptPlaceholder(sanitized, pattern);
+        }
+        return sanitized;
+    }
+
+    private static String replacePromptPlaceholder(String input, Pattern pattern) {
+        Matcher matcher = pattern.matcher(input);
+        if (!matcher.find()) {
+            return input;
+        }
+        StringBuffer buffer = new StringBuffer(input.length());
+        do {
+            matcher.appendReplacement(buffer, Matcher.quoteReplacement(PLACEHOLDER_REPLACEMENT));
+        } while (matcher.find());
+        matcher.appendTail(buffer);
+        return buffer.toString();
     }
 
     private static List<File> findValuesXmlFiles(File root) {
