@@ -30,11 +30,12 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v4";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v5";
     private static final Pattern PROMPT_HEADER_PATTERN =
             Pattern.compile(
                     "(<string\\b[^>]*\\bname\\s*=\\s*\"prompt_header\"[^>]*>)(.*?)(</string>)",
                     Pattern.DOTALL);
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\\\?\\{[^}]*\\}");
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -103,10 +104,7 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
             String opening = matcher.group(1);
             String content = matcher.group(2);
             String closing = matcher.group(3);
-            String sanitized = content;
-            if (content != null && content.contains("{str}")) {
-                sanitized = content.replace("{str}", "%1$s");
-            }
+            String sanitized = sanitizePlaceholders(content);
             if (!sanitized.equals(content)) {
                 modified = true;
             }
@@ -119,6 +117,28 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         }
         Files.writeString(file.toPath(), buffer.toString(), StandardCharsets.UTF_8);
         return true;
+    }
+
+    private static String sanitizePlaceholders(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+        Matcher placeholderMatcher = PLACEHOLDER_PATTERN.matcher(content);
+        StringBuffer sanitizedBuffer = new StringBuffer(content.length());
+        boolean replaced = false;
+        int argumentIndex = 1;
+        while (placeholderMatcher.find()) {
+            String replacement = "%" + argumentIndex + "$s";
+            placeholderMatcher.appendReplacement(
+                    sanitizedBuffer, Matcher.quoteReplacement(replacement));
+            argumentIndex++;
+            replaced = true;
+        }
+        if (!replaced) {
+            return content;
+        }
+        placeholderMatcher.appendTail(sanitizedBuffer);
+        return sanitizedBuffer.toString();
     }
 
     private static List<File> findValuesXmlFiles(File root) {
