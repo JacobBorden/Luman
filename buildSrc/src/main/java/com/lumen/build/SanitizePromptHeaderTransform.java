@@ -32,7 +32,7 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v7";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v8";
     private static final Pattern PROMPT_HEADER_PATTERN =
             Pattern.compile(
                     "(<([a-zA-Z0-9_:-]+)[^>]*name\\s*=\\s*\"prompt_header\"[^>]*>)(.*?)(</\\2>)",
@@ -159,7 +159,25 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         if (normalized.startsWith("{") && normalized.endsWith("}")) {
             normalized = normalized.substring(1, normalized.length() - 1);
         }
-        return normalized.trim();
+        normalized = normalized.trim();
+        if (normalized.isEmpty()) {
+            return normalized;
+        }
+        StringBuilder collapsed = new StringBuilder(normalized.length());
+        boolean previousWasWhitespace = false;
+        for (int i = 0; i < normalized.length(); i++) {
+            char c = normalized.charAt(i);
+            if (Character.isWhitespace(c)) {
+                if (!previousWasWhitespace) {
+                    collapsed.append(' ');
+                    previousWasWhitespace = true;
+                }
+            } else {
+                collapsed.append(c);
+                previousWasWhitespace = false;
+            }
+        }
+        return collapsed.toString();
     }
 
     private static List<File> findValuesXmlFiles(File root) {
