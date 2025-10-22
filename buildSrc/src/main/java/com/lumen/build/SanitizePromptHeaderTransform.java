@@ -8,6 +8,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -15,19 +16,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.OutputKeys;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerException;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
 import org.gradle.api.GradleException;
 import org.gradle.api.artifacts.transform.InputArtifact;
 import org.gradle.api.artifacts.transform.TransformAction;
@@ -35,13 +28,13 @@ import org.gradle.api.artifacts.transform.TransformOutputs;
 import org.gradle.api.artifacts.transform.TransformParameters;
 import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.NodeList;
-import org.xml.sax.SAXException;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v3";
+    private static final String SANITIZED_SUFFIX = "-sanitized-v4";
+    private static final Pattern PROMPT_HEADER_PATTERN =
+            Pattern.compile(
+                    "(<string\\b[^>]*\\bname\\s*=\\s*\"prompt_header\"[^>]*>)(.*?)(</string>)",
+                    Pattern.DOTALL);
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -94,89 +87,38 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         }
         boolean patchedAny = false;
         List<File> valuesFiles = findValuesXmlFiles(root);
-        DocumentBuilder builder = newDocumentBuilder();
-        TransformerFactory transformerFactory = TransformerFactory.newInstance();
         for (File file : valuesFiles) {
-            boolean filePatched = sanitizePromptHeaderFile(builder, transformerFactory, file);
+            boolean filePatched = sanitizePromptHeaderFile(file);
             patchedAny = patchedAny || filePatched;
         }
         return patchedAny;
     }
 
-    private static boolean sanitizePromptHeaderFile(
-            DocumentBuilder builder, TransformerFactory transformerFactory, File file)
-            throws IOException {
-        Document document;
-        try (BufferedInputStream inputStream = new BufferedInputStream(new FileInputStream(file))) {
-            document = builder.parse(inputStream);
-        } catch (SAXException exception) {
-            throw new IOException("Unable to parse values XML at " + file.getAbsolutePath(), exception);
-        }
-
-        Element rootElement = document.getDocumentElement();
-        if (rootElement == null) {
-            return false;
-        }
-        rootElement.normalize();
-        NodeList strings = rootElement.getElementsByTagName("string");
+    private static boolean sanitizePromptHeaderFile(File file) throws IOException {
+        String original = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+        Matcher matcher = PROMPT_HEADER_PATTERN.matcher(original);
+        StringBuffer buffer = new StringBuffer(original.length());
         boolean modified = false;
-        for (int index = 0; index < strings.getLength(); index++) {
-            Element element = (Element) strings.item(index);
-            if (!"prompt_header".equals(element.getAttribute("name"))) {
-                continue;
+        while (matcher.find()) {
+            String opening = matcher.group(1);
+            String content = matcher.group(2);
+            String closing = matcher.group(3);
+            String sanitized = content;
+            if (content != null && content.contains("{str}")) {
+                sanitized = content.replace("{str}", "%1$s");
             }
-            String text = element.getTextContent();
-            if (text == null || !text.contains("{str}")) {
-                continue;
+            if (!sanitized.equals(content)) {
+                modified = true;
             }
-            element.setTextContent(text.replace("{str}", "%1$s"));
-            modified = true;
+            matcher.appendReplacement(
+                    buffer, Matcher.quoteReplacement(opening + sanitized + closing));
         }
-
+        matcher.appendTail(buffer);
         if (!modified) {
             return false;
         }
-
-        try {
-            Transformer transformer = transformerFactory.newTransformer();
-            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
-            transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no");
-            transformer.setOutputProperty(OutputKeys.METHOD, "xml");
-            transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
-            try {
-                transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
-            } catch (IllegalArgumentException ignored) {
-                // Some transformer implementations do not support indent-amount.
-            }
-            try (BufferedOutputStream outputStream = new BufferedOutputStream(new FileOutputStream(file))) {
-                transformer.transform(new DOMSource(document), new StreamResult(outputStream));
-            }
-        } catch (TransformerException exception) {
-            throw new IOException("Unable to rewrite sanitized values XML at " + file.getAbsolutePath(),
-                    exception);
-        }
-
+        Files.writeString(file.toPath(), buffer.toString(), StandardCharsets.UTF_8);
         return true;
-    }
-
-    private static DocumentBuilder newDocumentBuilder() throws IOException {
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setNamespaceAware(false);
-        factory.setExpandEntityReferences(false);
-        factory.setXIncludeAware(false);
-        try {
-            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-        } catch (ParserConfigurationException ignored) {
-            // feature may not be supported; continue without failing hard
-        }
-        try {
-            return factory.newDocumentBuilder();
-        } catch (ParserConfigurationException exception) {
-            throw new IOException("Unable to create XML parser", exception);
-        }
     }
 
     private static List<File> findValuesXmlFiles(File root) {
