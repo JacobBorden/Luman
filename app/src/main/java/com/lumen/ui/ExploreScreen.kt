@@ -14,10 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import com.lumen.viewmodel.ExploreViewModel
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.lumen.R
+import com.lumen.viewmodel.ExploreViewModel
 
 @Composable
 fun ExploreScreen(viewModel: ExploreViewModel) {
@@ -30,7 +30,7 @@ fun ExploreScreen(viewModel: ExploreViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = stringResource(id = R.string.prompt_header),
+            text = stringResource(id = R.string.explore_prompt_header),
             style = MaterialTheme.typography.titleLarge
         )
         LazyColumn(
