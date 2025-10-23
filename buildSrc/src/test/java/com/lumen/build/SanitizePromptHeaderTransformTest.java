@@ -99,6 +99,48 @@ public final class SanitizePromptHeaderTransformTest {
         assertNoInvalidUnicodeEscapes(sanitized);
     }
 
+    @Test
+    public void sanitizePromptHeaderFile_handlesMultipleInvalidUnicodeEscapes() throws IOException {
+        Path valuesFile = createValuesFile(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>\\\"{str}\\\" -> \\User and \\user and \\u</string>\n"
+                        + "</resources>\n");
+
+        boolean modified = sanitize(valuesFile.toFile());
+        assertTrue("Expected invalid unicode escapes to be sanitized", modified);
+
+        String sanitized = Files.readString(valuesFile, StandardCharsets.UTF_8);
+        assertEquals(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>\\\"%1$s\\\" -> \\u005CUser and \\u005Cuser and \\u005Cu</string>\n"
+                        + "</resources>\n",
+                sanitized);
+        assertNoInvalidUnicodeEscapes(sanitized);
+    }
+
+    @Test
+    public void sanitizePromptHeaderFile_leavesValidUnicodeEscapesUntouched() throws IOException {
+        Path valuesFile = createValuesFile(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>Degree: \\u00B0 and {org}</string>\n"
+                        + "</resources>\n");
+
+        boolean modified = sanitize(valuesFile.toFile());
+        assertTrue("Expected placeholder to be sanitized", modified);
+
+        String sanitized = Files.readString(valuesFile, StandardCharsets.UTF_8);
+        assertEquals(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>Degree: \\u00B0 and %1$s</string>\n"
+                        + "</resources>\n",
+                sanitized);
+        assertNoInvalidUnicodeEscapes(sanitized);
+    }
+
     private Path createValuesFile(String contents) throws IOException {
         File resDir = temporaryFolder.newFolder("res", "values");
         Path file = resDir.toPath().resolve("strings.xml");
@@ -115,7 +157,7 @@ public final class SanitizePromptHeaderTransformTest {
     }
 
     private static void assertNoInvalidUnicodeEscapes(String content) {
-        Pattern invalidUnicodePattern = Pattern.compile("\\\\u(?![0-9a-fA-F]{4})");
+        Pattern invalidUnicodePattern = Pattern.compile("\\\\[uU](?![0-9a-fA-F]{4})");
         Matcher matcher = invalidUnicodePattern.matcher(content);
         if (matcher.find()) {
             throw new AssertionError(

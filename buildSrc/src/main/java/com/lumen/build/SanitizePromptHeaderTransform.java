@@ -39,8 +39,7 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
                     Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
     private static final Pattern PLACEHOLDER_PATTERN =
             Pattern.compile("\\\\?" + "\\{" + "[^}]*" + "\\}");
-    private static final Pattern INVALID_UNICODE_ESCAPE_PATTERN =
-            Pattern.compile("(?<!\\\\)\\\\u(?![0-9a-fA-F]{4})");
+    private static final String INVALID_UNICODE_ESCAPE_REPLACEMENT = "\\u005C";
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -161,13 +160,48 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         if (content == null || content.isEmpty()) {
             return content;
         }
-        Matcher matcher = INVALID_UNICODE_ESCAPE_PATTERN.matcher(content);
-        if (!matcher.find()) {
+        int length = content.length();
+        StringBuilder sanitized = null;
+        int index = 0;
+        while (index < length) {
+            char current = content.charAt(index);
+            if (current == '\\' && index + 1 < length) {
+                char next = content.charAt(index + 1);
+                if (next == 'u' || next == 'U') {
+                    int hexDigits = 0;
+                    int lookahead = index + 2;
+                    while (lookahead < length
+                            && hexDigits < 4
+                            && isHexDigit(content.charAt(lookahead))) {
+                        hexDigits++;
+                        lookahead++;
+                    }
+                    if (hexDigits < 4) {
+                        if (sanitized == null) {
+                            sanitized = new StringBuilder(length + 4);
+                            sanitized.append(content, 0, index);
+                        }
+                        sanitized.append(INVALID_UNICODE_ESCAPE_REPLACEMENT);
+                        index++;
+                        continue;
+                    }
+                }
+            }
+            if (sanitized != null) {
+                sanitized.append(current);
+            }
+            index++;
+        }
+        if (sanitized == null) {
             return content;
         }
-        return INVALID_UNICODE_ESCAPE_PATTERN
-                .matcher(content)
-                .replaceAll(Matcher.quoteReplacement("\\u005Cu"));
+        return sanitized.toString();
+    }
+
+    private static boolean isHexDigit(char value) {
+        return (value >= '0' && value <= '9')
+                || (value >= 'a' && value <= 'f')
+                || (value >= 'A' && value <= 'F');
     }
 
     private static boolean isStringElement(String openingTag, String tagName) {
