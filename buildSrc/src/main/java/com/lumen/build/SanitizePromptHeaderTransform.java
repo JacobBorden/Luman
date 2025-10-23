@@ -39,6 +39,7 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
                     Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
     private static final Pattern PLACEHOLDER_PATTERN =
             Pattern.compile("\\\\?" + "\\{" + "[^}]*" + "\\}");
+    private static final String INVALID_ESCAPE_BACKSLASH = "\\\\";
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -111,11 +112,12 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
                 continue;
             }
             String sanitized = sanitizePlaceholders(content);
-            if (!sanitized.equals(content)) {
+            String unicodeSafe = escapeInvalidUnicodeEscapes(sanitized);
+            if (!unicodeSafe.equals(content)) {
                 modified = true;
             }
             matcher.appendReplacement(
-                    buffer, Matcher.quoteReplacement(opening + sanitized + closing));
+                    buffer, Matcher.quoteReplacement(opening + unicodeSafe + closing));
         }
         matcher.appendTail(buffer);
         if (!modified) {
@@ -152,6 +154,60 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         }
         placeholderMatcher.appendTail(sanitizedBuffer);
         return sanitizedBuffer.toString();
+    }
+
+    private static String escapeInvalidUnicodeEscapes(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+        int length = content.length();
+        StringBuilder sanitized = null;
+        int index = 0;
+        while (index < length) {
+            char current = content.charAt(index);
+            if (current == '\\' && index + 1 < length) {
+                char next = content.charAt(index + 1);
+                boolean invalidEscape = false;
+                if (next == 'U') {
+                    invalidEscape = true;
+                } else if (next == 'u') {
+                    int hexDigits = 0;
+                    int lookahead = index + 2;
+                    while (lookahead < length
+                            && hexDigits < 4
+                            && isHexDigit(content.charAt(lookahead))) {
+                        hexDigits++;
+                        lookahead++;
+                    }
+                    if (hexDigits < 4) {
+                        invalidEscape = true;
+                    }
+                }
+                if (invalidEscape) {
+                    if (sanitized == null) {
+                        sanitized = new StringBuilder(length + 4);
+                        sanitized.append(content, 0, index);
+                    }
+                    sanitized.append(INVALID_ESCAPE_BACKSLASH);
+                    index++;
+                    continue;
+                }
+            }
+            if (sanitized != null) {
+                sanitized.append(current);
+            }
+            index++;
+        }
+        if (sanitized == null) {
+            return content;
+        }
+        return sanitized.toString();
+    }
+
+    private static boolean isHexDigit(char value) {
+        return (value >= '0' && value <= '9')
+                || (value >= 'a' && value <= 'f')
+                || (value >= 'A' && value <= 'F');
     }
 
     private static boolean isStringElement(String openingTag, String tagName) {
