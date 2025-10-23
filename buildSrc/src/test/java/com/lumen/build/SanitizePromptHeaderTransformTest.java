@@ -30,6 +30,27 @@ public final class SanitizePromptHeaderTransformTest {
         }
     }
 
+    @Test
+    public void sanitizePromptHeaderFile_handlesStringItemElements() throws IOException {
+        Path valuesFile = createValuesFile(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <item type='string' name='prompt_header'>\\\"{str}\\\"</item>\n"
+                        + "</resources>\n");
+
+        boolean modified = sanitize(valuesFile.toFile());
+        assertTrue("Expected item string to be sanitized", modified);
+
+        String sanitized = Files.readString(valuesFile, StandardCharsets.UTF_8);
+        assertEquals(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <item type='string' name='prompt_header'>\\\"%1$s\\\"</item>\n"
+                        + "</resources>\n",
+                sanitized);
+        assertNoInvalidUnicodeEscapes(sanitized);
+    }
+
     @Rule public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test

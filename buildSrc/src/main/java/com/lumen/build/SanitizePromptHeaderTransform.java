@@ -33,7 +33,7 @@ import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
     private static final String SANITIZED_SUFFIX = "-sanitized-v9";
-    private static final Pattern PROMPT_HEADER_PATTERN =
+    private static final Pattern STRING_WITH_NAME_PATTERN =
             Pattern.compile(
                     "(<([a-zA-Z0-9_:-]+)[^>]*name\\s*=\\s*(['\"])prompt_header\\3[^>]*>)(.*?)(</\\2>)",
                     Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
@@ -100,13 +100,16 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
 
     private static boolean sanitizePromptHeaderFile(File file) throws IOException {
         String original = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-        Matcher matcher = PROMPT_HEADER_PATTERN.matcher(original);
+        Matcher matcher = STRING_WITH_NAME_PATTERN.matcher(original);
         StringBuffer buffer = new StringBuffer(original.length());
         boolean modified = false;
         while (matcher.find()) {
             String opening = matcher.group(1);
             String content = matcher.group(4);
             String closing = matcher.group(5);
+            if (!isStringElement(opening, matcher.group(2))) {
+                continue;
+            }
             String sanitized = sanitizePlaceholders(content);
             if (!sanitized.equals(content)) {
                 modified = true;
@@ -149,6 +152,21 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         }
         placeholderMatcher.appendTail(sanitizedBuffer);
         return sanitizedBuffer.toString();
+    }
+
+    private static boolean isStringElement(String openingTag, String tagName) {
+        if (tagName == null) {
+            return false;
+        }
+        if ("string".equalsIgnoreCase(tagName)) {
+            return true;
+        }
+        if (!"item".equalsIgnoreCase(tagName)) {
+            return false;
+        }
+        String lowerOpening = openingTag.toLowerCase();
+        return lowerOpening.contains("type=\"string\"")
+                || lowerOpening.contains("type='string'");
     }
 
     private static String canonicalizePlaceholderKey(String placeholder) {
