@@ -79,6 +79,48 @@ public final class SanitizePromptHeaderTransformTest {
     }
 
     @Test
+    public void sanitizePromptHeaderFile_convertsQuotedPlaceholder() throws IOException {
+        Path valuesFile = createValuesFile(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>\"{str}\"</string>\n"
+                        + "</resources>\n");
+
+        boolean modified = sanitize(valuesFile.toFile());
+        assertTrue("Expected prompt header placeholder to be sanitized", modified);
+
+        String sanitized = Files.readString(valuesFile, StandardCharsets.UTF_8);
+        assertEquals(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>\"%1$s\"</string>\n"
+                        + "</resources>\n",
+                sanitized);
+        assertNoInvalidUnicodeEscapes(sanitized);
+    }
+
+    @Test
+    public void sanitizePromptHeaderFile_handlesXliffPlaceholder() throws IOException {
+        Path valuesFile = createValuesFile(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources xmlns:xliff=\"urn:oasis:names:tc:xliff:document:1.2\">\n"
+                        + "    <string name='prompt_header'><xliff:g id=\"value\">{str}</xliff:g></string>\n"
+                        + "</resources>\n");
+
+        boolean modified = sanitize(valuesFile.toFile());
+        assertTrue("Expected xliff placeholder to be sanitized", modified);
+
+        String sanitized = Files.readString(valuesFile, StandardCharsets.UTF_8);
+        assertEquals(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources xmlns:xliff=\"urn:oasis:names:tc:xliff:document:1.2\">\n"
+                        + "    <string name='prompt_header'><xliff:g id=\"value\">%1$s</xliff:g></string>\n"
+                        + "</resources>\n",
+                sanitized);
+        assertNoInvalidUnicodeEscapes(sanitized);
+    }
+
+    @Test
     public void sanitizePromptHeaderFile_fixesInvalidUnicodeEscapes() throws IOException {
         Path valuesFile = createValuesFile(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
