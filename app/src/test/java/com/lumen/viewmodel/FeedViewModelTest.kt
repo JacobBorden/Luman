@@ -3,6 +3,8 @@ package com.lumen.viewmodel
 import com.lumen.data.MomentRepository
 import com.lumen.util.MainDispatcherRule
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -24,9 +26,7 @@ class FeedViewModelTest {
         val repository = MomentRepository()
         val viewModel = FeedViewModel(repository)
 
-        advanceUntilIdle()
-
-        val state = viewModel.uiState.value
+        val state = viewModel.uiState.first { it.moments.isNotEmpty() }
 
         assertEquals(3, state.moments.size)
         assertFalse(state.isRefreshing)
@@ -39,7 +39,10 @@ class FeedViewModelTest {
         val emissions = mutableListOf<FeedUiState>()
 
         val job = launch {
-            viewModel.uiState.take(3).collect(emissions::add)
+            viewModel.uiState
+                .drop(1)
+                .take(3)
+                .collect(emissions::add)
         }
 
         advanceUntilIdle()
