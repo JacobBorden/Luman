@@ -135,7 +135,7 @@ public final class SanitizePromptHeaderTransformTest {
         assertEquals(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                         + "<resources>\n"
-                        + "    <string name='prompt_header'>\\\"%1$s\\\" and \\u005Cuser</string>\n"
+                        + "    <string name='prompt_header'>\\\"%1$s\\\" and \\\\user</string>\n"
                         + "</resources>\n",
                 sanitized);
         assertNoInvalidUnicodeEscapes(sanitized);
@@ -156,7 +156,7 @@ public final class SanitizePromptHeaderTransformTest {
         assertEquals(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                         + "<resources>\n"
-                        + "    <string name='prompt_header'>\\\"%1$s\\\" -> \\u005CUser and \\u005Cuser and \\u005Cu</string>\n"
+                        + "    <string name='prompt_header'>\\\"%1$s\\\" -> \\\\User and \\\\user and \\\\u</string>\n"
                         + "</resources>\n",
                 sanitized);
         assertNoInvalidUnicodeEscapes(sanitized);
@@ -178,7 +178,7 @@ public final class SanitizePromptHeaderTransformTest {
         assertEquals(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                         + "<resources>\n"
-                        + "    <string name='prompt_header'>Emoji: \\u005CU0001F600 and %1$s</string>\n"
+                        + "    <string name='prompt_header'>Emoji: \\\\U0001F600 and %1$s</string>\n"
                         + "</resources>\n",
                 sanitized);
         assertNoInvalidUnicodeEscapes(sanitized);
@@ -222,7 +222,7 @@ public final class SanitizePromptHeaderTransformTest {
 
     private static void assertNoInvalidUnicodeEscapes(String content) {
         Pattern invalidUnicodePattern =
-                Pattern.compile("(\\\\u(?![0-9a-fA-F]{4}))|(\\\\U)");
+                Pattern.compile("(?<!\\\\)\\\\u(?![0-9a-fA-F]{4})|(?<!\\\\)\\\\U");
         Matcher matcher = invalidUnicodePattern.matcher(content);
         if (matcher.find()) {
             throw new AssertionError(

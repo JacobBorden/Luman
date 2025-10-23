@@ -39,7 +39,7 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
                     Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
     private static final Pattern PLACEHOLDER_PATTERN =
             Pattern.compile("\\\\?" + "\\{" + "[^}]*" + "\\}");
-    private static final String INVALID_UNICODE_ESCAPE_REPLACEMENT = "\\u005C";
+    private static final String INVALID_ESCAPE_BACKSLASH = "\\\\";
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -188,7 +188,7 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
                         sanitized = new StringBuilder(length + 4);
                         sanitized.append(content, 0, index);
                     }
-                    sanitized.append(INVALID_UNICODE_ESCAPE_REPLACEMENT);
+                    sanitized.append(INVALID_ESCAPE_BACKSLASH);
                     index++;
                     continue;
                 }
