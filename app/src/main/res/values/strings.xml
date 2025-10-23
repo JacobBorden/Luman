@@ -6,7 +6,7 @@
     <string name="add_moment_cta">Capture a new mood</string>
     <string name="tone_label">Tone</string>
     <string name="caption_label">Caption</string>
-    <string name="prompt_header">Today's prompts</string>
+    <string name="prompt_header">Today’s prompts</string>
     <string name="save_moment">Save moment</string>
     <string name="shuffle_action">Shuffle</string>
 </resources>
