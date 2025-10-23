@@ -167,7 +167,10 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
             char current = content.charAt(index);
             if (current == '\\' && index + 1 < length) {
                 char next = content.charAt(index + 1);
-                if (next == 'u' || next == 'U') {
+                boolean invalidEscape = false;
+                if (next == 'U') {
+                    invalidEscape = true;
+                } else if (next == 'u') {
                     int hexDigits = 0;
                     int lookahead = index + 2;
                     while (lookahead < length
@@ -177,14 +180,17 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
                         lookahead++;
                     }
                     if (hexDigits < 4) {
-                        if (sanitized == null) {
-                            sanitized = new StringBuilder(length + 4);
-                            sanitized.append(content, 0, index);
-                        }
-                        sanitized.append(INVALID_UNICODE_ESCAPE_REPLACEMENT);
-                        index++;
-                        continue;
+                        invalidEscape = true;
                     }
+                }
+                if (invalidEscape) {
+                    if (sanitized == null) {
+                        sanitized = new StringBuilder(length + 4);
+                        sanitized.append(content, 0, index);
+                    }
+                    sanitized.append(INVALID_UNICODE_ESCAPE_REPLACEMENT);
+                    index++;
+                    continue;
                 }
             }
             if (sanitized != null) {

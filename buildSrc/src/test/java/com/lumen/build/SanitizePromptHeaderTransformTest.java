@@ -121,6 +121,28 @@ public final class SanitizePromptHeaderTransformTest {
     }
 
     @Test
+    public void sanitizePromptHeaderFile_escapesUppercaseUnicodePrefixWithDigits()
+            throws IOException {
+        Path valuesFile = createValuesFile(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>Emoji: \\U0001F600 and {str}</string>\n"
+                        + "</resources>\n");
+
+        boolean modified = sanitize(valuesFile.toFile());
+        assertTrue("Expected uppercase unicode prefix to be sanitized", modified);
+
+        String sanitized = Files.readString(valuesFile, StandardCharsets.UTF_8);
+        assertEquals(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>Emoji: \\u005CU0001F600 and %1$s</string>\n"
+                        + "</resources>\n",
+                sanitized);
+        assertNoInvalidUnicodeEscapes(sanitized);
+    }
+
+    @Test
     public void sanitizePromptHeaderFile_leavesValidUnicodeEscapesUntouched() throws IOException {
         Path valuesFile = createValuesFile(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
@@ -157,7 +179,8 @@ public final class SanitizePromptHeaderTransformTest {
     }
 
     private static void assertNoInvalidUnicodeEscapes(String content) {
-        Pattern invalidUnicodePattern = Pattern.compile("\\\\[uU](?![0-9a-fA-F]{4})");
+        Pattern invalidUnicodePattern =
+                Pattern.compile("(\\\\u(?![0-9a-fA-F]{4}))|(\\\\U)");
         Matcher matcher = invalidUnicodePattern.matcher(content);
         if (matcher.find()) {
             throw new AssertionError(
