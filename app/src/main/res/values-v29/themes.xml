@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Lumen" parent="Theme.Lumen.Base">
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+</resources>
