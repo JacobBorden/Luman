@@ -78,6 +78,27 @@ public final class SanitizePromptHeaderTransformTest {
         assertNoInvalidUnicodeEscapes(sanitized);
     }
 
+    @Test
+    public void sanitizePromptHeaderFile_fixesInvalidUnicodeEscapes() throws IOException {
+        Path valuesFile = createValuesFile(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>\\\"{str}\\\" and \\user</string>\n"
+                        + "</resources>\n");
+
+        boolean modified = sanitize(valuesFile.toFile());
+        assertTrue("Expected invalid unicode escape to be sanitized", modified);
+
+        String sanitized = Files.readString(valuesFile, StandardCharsets.UTF_8);
+        assertEquals(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<resources>\n"
+                        + "    <string name='prompt_header'>\\\"%1$s\\\" and \\u005Cuser</string>\n"
+                        + "</resources>\n",
+                sanitized);
+        assertNoInvalidUnicodeEscapes(sanitized);
+    }
+
     private Path createValuesFile(String contents) throws IOException {
         File resDir = temporaryFolder.newFolder("res", "values");
         Path file = resDir.toPath().resolve("strings.xml");

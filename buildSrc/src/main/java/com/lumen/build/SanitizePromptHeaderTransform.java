@@ -39,6 +39,8 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
                     Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
     private static final Pattern PLACEHOLDER_PATTERN =
             Pattern.compile("\\\\?" + "\\{" + "[^}]*" + "\\}");
+    private static final Pattern INVALID_UNICODE_ESCAPE_PATTERN =
+            Pattern.compile("(?<!\\\\)\\\\u(?![0-9a-fA-F]{4})");
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -111,11 +113,12 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
                 continue;
             }
             String sanitized = sanitizePlaceholders(content);
-            if (!sanitized.equals(content)) {
+            String unicodeSafe = escapeInvalidUnicodeEscapes(sanitized);
+            if (!unicodeSafe.equals(content)) {
                 modified = true;
             }
             matcher.appendReplacement(
-                    buffer, Matcher.quoteReplacement(opening + sanitized + closing));
+                    buffer, Matcher.quoteReplacement(opening + unicodeSafe + closing));
         }
         matcher.appendTail(buffer);
         if (!modified) {
@@ -152,6 +155,19 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         }
         placeholderMatcher.appendTail(sanitizedBuffer);
         return sanitizedBuffer.toString();
+    }
+
+    private static String escapeInvalidUnicodeEscapes(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+        Matcher matcher = INVALID_UNICODE_ESCAPE_PATTERN.matcher(content);
+        if (!matcher.find()) {
+            return content;
+        }
+        return INVALID_UNICODE_ESCAPE_PATTERN
+                .matcher(content)
+                .replaceAll(Matcher.quoteReplacement("\\u005Cu"));
     }
 
     private static boolean isStringElement(String openingTag, String tagName) {
