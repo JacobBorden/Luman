@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,9 +27,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
 import com.lumen.model.Moment
 import com.lumen.viewmodel.FeedViewModel
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
 fun FeedScreen(viewModel: FeedViewModel) {
@@ -81,9 +81,12 @@ private fun MomentCard(moment: Moment) {
                 overflow = TextOverflow.Ellipsis
             )
         }
+        val formattedDate = remember(moment.createdAtMillis) {
+            DateFormat.getDateInstance(DateFormat.MEDIUM)
+                .format(Date(moment.createdAtMillis))
+        }
         Text(
-            text = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
-                .format(moment.createdAt.atZone(ZoneId.systemDefault())),
+            text = formattedDate,
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.secondary,
             modifier = Modifier.padding(top = 4.dp)
