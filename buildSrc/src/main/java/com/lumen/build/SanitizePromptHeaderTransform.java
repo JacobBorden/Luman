@@ -15,7 +15,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -30,11 +32,13 @@ import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
 public abstract class SanitizePromptHeaderTransform implements TransformAction<TransformParameters.None> {
-    private static final String SANITIZED_SUFFIX = "-sanitized-v4";
-    private static final Pattern PROMPT_HEADER_PATTERN =
+    private static final String SANITIZED_SUFFIX = "-sanitized-v9";
+    private static final Pattern STRING_WITH_NAME_PATTERN =
             Pattern.compile(
-                    "(<string\\b[^>]*\\bname\\s*=\\s*\"prompt_header\"[^>]*>)(.*?)(</string>)",
-                    Pattern.DOTALL);
+                    "(<([a-zA-Z0-9_:-]+)[^>]*name\\s*=\\s*(['\"])prompt_header\\3[^>]*>)(.*?)(</\\2>)",
+                    Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+    private static final Pattern PLACEHOLDER_PATTERN =
+            Pattern.compile("\\\\?" + "\\{" + "[^}]*" + "\\}");
 
     @InputArtifact
     public abstract Provider<FileSystemLocation> getInputArtifact();
@@ -96,17 +100,17 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
 
     private static boolean sanitizePromptHeaderFile(File file) throws IOException {
         String original = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-        Matcher matcher = PROMPT_HEADER_PATTERN.matcher(original);
+        Matcher matcher = STRING_WITH_NAME_PATTERN.matcher(original);
         StringBuffer buffer = new StringBuffer(original.length());
         boolean modified = false;
         while (matcher.find()) {
             String opening = matcher.group(1);
-            String content = matcher.group(2);
-            String closing = matcher.group(3);
-            String sanitized = content;
-            if (content != null && content.contains("{str}")) {
-                sanitized = content.replace("{str}", "%1$s");
+            String content = matcher.group(4);
+            String closing = matcher.group(5);
+            if (!isStringElement(opening, matcher.group(2))) {
+                continue;
             }
+            String sanitized = sanitizePlaceholders(content);
             if (!sanitized.equals(content)) {
                 modified = true;
             }
@@ -119,6 +123,92 @@ public abstract class SanitizePromptHeaderTransform implements TransformAction<T
         }
         Files.writeString(file.toPath(), buffer.toString(), StandardCharsets.UTF_8);
         return true;
+    }
+
+    private static String sanitizePlaceholders(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+        Matcher placeholderMatcher = PLACEHOLDER_PATTERN.matcher(content);
+        StringBuffer sanitizedBuffer = new StringBuffer(content.length());
+        Map<String, Integer> placeholderOrder = new LinkedHashMap<>();
+        boolean replaced = false;
+        int nextIndex = 1;
+        while (placeholderMatcher.find()) {
+            String placeholder = placeholderMatcher.group();
+            String placeholderKey = canonicalizePlaceholderKey(placeholder);
+            Integer assignedIndex = placeholderOrder.get(placeholderKey);
+            if (assignedIndex == null) {
+                assignedIndex = nextIndex++;
+                placeholderOrder.put(placeholderKey, assignedIndex);
+            }
+            String replacement = "%" + assignedIndex + "$s";
+            placeholderMatcher.appendReplacement(
+                    sanitizedBuffer, Matcher.quoteReplacement(replacement));
+            replaced = true;
+        }
+        if (!replaced) {
+            return content;
+        }
+        placeholderMatcher.appendTail(sanitizedBuffer);
+        return sanitizedBuffer.toString();
+    }
+
+    private static boolean isStringElement(String openingTag, String tagName) {
+        if (tagName == null) {
+            return false;
+        }
+        if ("string".equalsIgnoreCase(tagName)) {
+            return true;
+        }
+        if (!"item".equalsIgnoreCase(tagName)) {
+            return false;
+        }
+        String lowerOpening = openingTag.toLowerCase();
+        return lowerOpening.contains("type=\"string\"")
+                || lowerOpening.contains("type='string'");
+    }
+
+    private static String canonicalizePlaceholderKey(String placeholder) {
+        if (placeholder == null || placeholder.isEmpty()) {
+            return "";
+        }
+        int start = 0;
+        int end = placeholder.length();
+        if (placeholder.charAt(start) == '\\') {
+            start++;
+        }
+        if (start < end && placeholder.charAt(start) == '{') {
+            start++;
+        }
+        if (end > start && placeholder.charAt(end - 1) == '}') {
+            end--;
+        }
+        if (start >= end) {
+            return "";
+        }
+        StringBuilder normalized = new StringBuilder(end - start);
+        boolean seenContent = false;
+        boolean pendingWhitespace = false;
+        for (int index = start; index < end; index++) {
+            char current = placeholder.charAt(index);
+            if (current == '\\') {
+                continue;
+            }
+            if (Character.isWhitespace(current)) {
+                if (seenContent) {
+                    pendingWhitespace = true;
+                }
+            } else {
+                if (pendingWhitespace) {
+                    normalized.append(' ');
+                    pendingWhitespace = false;
+                }
+                normalized.append(current);
+                seenContent = true;
+            }
+        }
+        return normalized.toString();
     }
 
     private static List<File> findValuesXmlFiles(File root) {
