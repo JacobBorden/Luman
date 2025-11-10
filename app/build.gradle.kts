@@ -1,4 +1,3 @@
-import com.lumen.build.SanitizePromptHeaderTransform
 import org.gradle.api.artifacts.type.ArtifactTypeDefinition
 import org.gradle.api.attributes.Attribute
 
@@ -77,21 +76,3 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }
 
-val promptHeaderSanitizedAttribute = Attribute.of("promptHeaderSanitized", Boolean::class.javaObjectType)
-
-dependencies {
-    attributesSchema.attribute(promptHeaderSanitizedAttribute)
-    artifactTypes.maybeCreate("aar").attributes.attribute(promptHeaderSanitizedAttribute, false)
-    registerTransform(SanitizePromptHeaderTransform::class) {
-        from.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "aar")
-        from.attribute(promptHeaderSanitizedAttribute, false)
-        to.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "aar")
-        to.attribute(promptHeaderSanitizedAttribute, true)
-    }
-}
-
-configurations.configureEach {
-    if (isCanBeResolved) {
-        attributes.attribute(promptHeaderSanitizedAttribute, true)
-    }
-}

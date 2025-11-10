@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
@@ -81,8 +82,9 @@ private fun MomentCard(moment: Moment) {
                 overflow = TextOverflow.Ellipsis
             )
         }
+        val context = LocalContext.current
         val formattedDate = remember(moment.createdAtMillis) {
-            DateFormat.getDateInstance(DateFormat.MEDIUM)
+            android.text.format.DateFormat.getMediumDateFormat(context)
                 .format(Date(moment.createdAtMillis))
         }
         Text(
